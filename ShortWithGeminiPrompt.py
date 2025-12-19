@@ -1,170 +1,355 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import json
 import os
-import sys
-import threading
-import pandas as pd
-from datetime import datetime, timedelta, timezone
-from googleapiclient.discovery import build
-from google import genai
-import yt_dlp
-import pyperclip
 import webbrowser
+import time
+import pandas as pd
+import yt_dlp
+from datetime import datetime, UTC, timedelta
+from googleapiclient.discovery import build
+from google import genai  # 新增：Gemini SDK
+import pyperclip
 
-# --- 相容性處理：UTC 修正 ---
-try:
-    from datetime import UTC
-except ImportError:
-    UTC = timezone.utc
+import sys
 
 def get_base_path():
-    """ 取得程式執行時的真實路徑 (相容 .exe 與 .py) """
+    """ 取得程式執行的真實路徑 """
     if getattr(sys, 'frozen', False):
+        # 這是打包後的 .exe 執行路徑
         return os.path.dirname(sys.executable)
+    # 這是開發環境的 .py 路徑
     return os.path.dirname(os.path.abspath(__file__))
 
-def resource_path(relative_path):
-    """ 取得內部資源路徑 (如圖示) """
-    if hasattr(sys, '_MEIPASS'):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.abspath("."), relative_path)
+# ========================
+# Core Logic: YouTube Fetcher
+# ========================
+def fetch_trending_shorts(api_key, keyword, days, min_views, min_subs, max_results, min_viral_score):
+    youtube = build("youtube", "v3", developerKey=api_key)
+    published_after = (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-BASE_PATH = get_base_path()
-CONFIG_FILE = os.path.join(BASE_PATH, "config.json")
-ICON_PATH = resource_path("icon.ico")
+    search_response = youtube.search().list(
+        q=keyword, part="id", type="video", order="viewCount",
+        maxResults=max_results, publishedAfter=published_after
+    ).execute()
 
-# --- 設定存取邏輯 ---
-def load_config():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except: pass
-    return {}
+    video_ids = [item["id"]["videoId"] for item in search_response["items"]]
+    if not video_ids: return []
 
-def save_config(data):
-    try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        messagebox.showerror("存檔失敗", f"無法儲存設定：{e}")
+    video_response = youtube.videos().list(
+        part="snippet,statistics,contentDetails", id=",".join(video_ids)
+    ).execute()
 
-# --- 核心 AI 分析邏輯 ---
+    results = []
+    for item in video_response["items"]:
+        duration = item["contentDetails"]["duration"]
+        if "M" in duration and not duration.startswith("PT0"): continue
+
+        stats = item["statistics"]
+        snippet = item["snippet"]
+        views = int(stats.get("viewCount", 0))
+        if views < min_views: continue
+
+        published = datetime.fromisoformat(snippet["publishedAt"].replace("Z", "+00:00"))
+        now = datetime.now(UTC)
+        hours_passed = max((now - published).total_seconds() / 3600, 1)
+        viral_score = views / hours_passed
+        if viral_score < min_viral_score: continue
+
+        results.append({
+            "title": snippet["title"],
+            "views": views,
+            "hours": round(hours_passed, 1),
+            "viral_score": round(viral_score, 2),
+            "published": published.strftime("%Y-%m-%d %H:%M"),
+            "url": f"https://www.youtube.com/watch?v={item['id']}"
+        })
+    results.sort(key=lambda x: x["viral_score"], reverse=True)
+    return results
+
+# ========================
+# Core Logic: Gemini AI Analysis
+# ========================
 def ai_generate_prompt(gemini_api_key, video_url, progress_callback):
+    """
+    下載影片並由 Gemini 產生提示詞
+    """
+    if not gemini_api_key:
+        return "⚠️ 請先在【進階設定】輸入 Gemini API Key！"
+    
     try:
         progress_callback("正在下載影片片段...")
+        # --- 新增：獲取內置 ffmpeg 的路徑 ---
+        ffmpeg_path = resource_path(".") # 指向臨時資料夾根目錄
         
-        # yt-dlp 設定：不再強制指向 _MEIPASS，讓它搜尋系統環境或同目錄
         ydl_opts = {
             'format': 'best[ext=mp4]/tiny',
             'outtmpl': 'temp_ai_input.mp4',
             'overwrites': True,
-            'quiet': True,
-            'no_warnings': True
-        }
-        
+            # 強制指定 ffmpeg 的位置
+            'ffmpeg_location': ffmpeg_path 
+        }        
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
-            
-        progress_callback("影片下載完成，正在上傳至 Gemini...")
+
+        ydl_opts = {
+            'format': 'best[ext=mp4]/tiny',
+            'outtmpl': 'temp_ai_input.mp4',
+            'overwrites': True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([video_url])
+
         client = genai.Client(api_key=gemini_api_key)
         
+        # 獲取可用模型
+        models_list = [m.name for m in client.models.list()]
+        priority_models = ["models/gemini-2.0-flash-exp", "models/gemini-1.5-flash", "models/gemini-1.5-pro"]
+        target_model = next((p for p in priority_models if p in models_list), models_list[0])
+
+        progress_callback(f"正在上傳至 Gemini ({target_model})...")
         with open("temp_ai_input.mp4", "rb") as f:
-            video_file = client.files.upload(file=f)
-            
-        progress_callback("AI 正在解析影片內容，請稍候...")
-        prompt = """
-        請分析這段 YouTube Shorts 影片，並生成一段專業的 AI 影片生成提示詞 (Video Prompt)。
-        包含：1. 畫面構圖 2. 主角動作 3. 光影與氛圍 4. 運鏡方式。
-        請以繁體中文回答。
-        """
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=[video_file, prompt]
-        )
+            video_file = client.files.upload(file=f, config={'mime_type': 'video/mp4'})
+
+        while video_file.state == "PROCESSING":
+            time.sleep(2)
+            video_file = client.files.get(name=video_file.name)
+
+        progress_callback("AI 正在分析內容...")
+        prompt_instruction = "請擔任專業影片分析師，觀察此影片並為 AI 影片生成模型 (如 Sora) 撰寫英文提示詞 (Prompt)。包含：主角特徵、動作、環境、鏡頭運動與光影氛圍。"
         
-        # 清理暫存檔
-        if os.path.exists("temp_ai_input.mp4"):
-            os.remove("temp_ai_input.mp4")
-            
+        response = client.models.generate_content(model=target_model, contents=[video_file, prompt_instruction])
+        
+        client.files.delete(name=video_file.name)
+        if os.path.exists("temp_ai_input.mp4"): os.remove("temp_ai_input.mp4")
+        
         return response.text
     except Exception as e:
-        return f"❌ 分析失敗: {str(e)}"
+        return f"❌ AI 分析失敗: {str(e)}"
 
-# --- GUI 介面建構 ---
+# ========================
+# GUI Setup
+# ========================
+# 修改 CONFIG_FILE 定義
+BASE_PATH = get_base_path()
+CONFIG_FILE = os.path.join(BASE_PATH, "config.json")
+
+
+def default_config():
+    return {
+        "api_key": "",             # YouTube API
+        "gemini_key": "",          # Gemini API
+        "keyword": "animal",
+        "days": 7,
+        "min_views": 100000,
+        "min_subs": 0,
+        "max_results": 30,
+        "min_viral_score": 3000
+    }
+
+def load_config():
+    default = default_config()
+    if not os.path.exists(CONFIG_FILE): return default
+    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        user_cfg = json.load(f)
+    for key, value in default.items():
+        if key not in user_cfg: user_cfg[key] = value
+    return user_cfg
+
+def save_config(data):
+    """ 儲存設定到絕對路徑，並加入錯誤捕捉 """
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        # 如果因為權限問題無法存檔，跳出提示告知使用者
+        messagebox.showerror("存檔失敗", f"無法儲存設定檔至：\n{CONFIG_FILE}\n錯誤訊息：{e}")
+
+def resource_path(relative_path):
+    """ 取得內置資源（如圖示）的暫存路徑 """
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
+
+ICON_PATH = resource_path("icon.ico")
+
 root = tk.Tk()
-root.title("Shorts 趨勢分析與 AI 助手")
-root.geometry("900x700")
-
-# 設定視窗圖示
+root.title("YouTube Shorts 趨勢與 AI 影片分析工具")
+# 設定視窗圖示（若檔案存在則載入）
 if os.path.exists(ICON_PATH):
-    try: root.iconbitmap(ICON_PATH)
-    except: pass
+    try:
+        root.iconbitmap(ICON_PATH)
+    except:
+        pass
+root.geometry("1000x800")
 
-config = load_config()
+cfg = load_config()
+api_key_var = tk.StringVar(value=cfg["api_key"])
+gemini_key_var = tk.StringVar(value=cfg.get("gemini_key", ""))
+keyword_var = tk.StringVar(value=cfg["keyword"])
+days_var = tk.IntVar(value=cfg["days"])
+min_views_var = tk.IntVar(value=cfg["min_views"])
+min_subs_var = tk.IntVar(value=cfg["min_subs"])
+max_results_var = tk.IntVar(value=cfg["max_results"])
+min_viral_score_var = tk.DoubleVar(value=cfg["min_viral_score"])
 
-# 分頁系統
+current_results = []
+selected_url = ""
+
+# ========================
+# Actions
+# ========================
+def start_ai_process(url):
+    """ 核心 AI 啟動流程，支援不同來源的 URL """
+    notebook.select(ai_tab)
+    ai_text.delete("1.0", tk.END)
+    ai_text.insert(tk.END, f"🚀 啟動分析：{url}\n")
+    
+    def worker():
+        # 這裡調用您原始碼中定義的 ai_generate_prompt
+        result = ai_generate_prompt(
+            gemini_key_var.get().strip(), 
+            url, 
+            lambda msg: root.after(0, lambda: ai_text.insert(tk.END, f"> {msg}\n"))
+        )
+        root.after(0, lambda: ai_text.insert(tk.END, f"\n--- 分析結果 ---\n\n{result}"))
+
+    import threading
+    threading.Thread(target=worker, daemon=True).start()
+    
+def run_ai_analysis():
+    global selected_url
+    if not selected_url:
+        messagebox.showwarning("提示", "請先從清單中右鍵點選一部影片。")
+        return
+    start_ai_process(selected_url)
+    
+    notebook.select(ai_tab)
+    ai_text.delete("1.0", tk.END)
+    ai_text.insert(tk.END, "🚀 啟動 AI 分析流程...\n")
+    
+    def worker():
+        result = ai_generate_prompt(
+            gemini_key_var.get().strip(), 
+            selected_url, 
+            lambda msg: root.after(0, lambda: ai_text.insert(tk.END, f"> {msg}\n"))
+        )
+        root.after(0, lambda: ai_text.insert(tk.END, f"\n--- 分析結果 ---\n\n{result}"))
+
+    import threading
+    threading.Thread(target=worker, daemon=True).start()
+
+def copy_ai_result():
+    content = ai_text.get("1.0", tk.END)
+    pyperclip.copy(content)
+    messagebox.showinfo("成功", "AI 結果已複製到剪貼簿")
+
+# ========================
+# UI Tabs
+# ========================
 notebook = ttk.Notebook(root)
 notebook.pack(fill="both", expand=True)
 
 basic_tab = ttk.Frame(notebook)
 adv_tab = ttk.Frame(notebook)
+result_tab = ttk.Frame(notebook)
 ai_tab = ttk.Frame(notebook)
 
-notebook.add(basic_tab, text="基本搜尋")
-notebook.add(ai_tab, text="AI Prompt 分析")
+notebook.add(basic_tab, text="基本設定")
 notebook.add(adv_tab, text="進階與 API")
+notebook.add(result_tab, text="分析結果")
+notebook.add(ai_tab, text="AI Prompt 結果")
 
-# --- [AI Tab] 手動輸入與結果顯示 ---
-ai_manual_frame = ttk.LabelFrame(ai_tab, text="手動分析網址")
-ai_manual_frame.pack(fill="x", padx=10, pady=10)
+# --- Basic Tab ---
+def labeled_entry(parent, label, var, row, help_text=None):
+    ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=10, pady=5)
+    ttk.Entry(parent, textvariable=var, width=40).grid(row=row, column=1, padx=10)
+    if help_text: ttk.Label(parent, text=help_text, foreground="gray").grid(row=row, column=2, sticky="w")
 
-manual_url_var = tk.StringVar()
-ttk.Entry(ai_manual_frame, textvariable=manual_url_var, width=60).pack(side="left", padx=5, pady=5)
+labeled_entry(basic_tab, "關鍵字", keyword_var, 0)
+labeled_entry(basic_tab, "搜尋天數", days_var, 1, "例如: 7 = 最近 7 天")
 
-def start_ai_process(url):
-    """ 核心啟動分析流程 """
-    if not url: return
-    notebook.select(ai_tab)
-    ai_text.delete("1.0", tk.END)
-    ai_text.insert(tk.END, f"🚀 準備分析網址: {url}\n")
-    
-    key = gemini_key_var.get().strip()
-    if not key:
-        messagebox.showerror("錯誤", "請先到進階設定填寫 Gemini API Key")
-        return
+# --- Adv Tab ---
+labeled_entry(adv_tab, "YouTube API Key", api_key_var, 0, "到 Google Cloud 申請 YouTube Data API v3")
+labeled_entry(adv_tab, "Gemini API Key", gemini_key_var, 1, "用於分析影片產生 Prompt")
+labeled_entry(adv_tab, "最少觀看數", min_views_var, 2, "低於此數字會被過濾")
+labeled_entry(adv_tab, "爆發指數門檻", min_viral_score_var, 3, "觀看數 ÷ 發布後小時（越高代表成長越快）")
 
-    def worker():
-        res = ai_generate_prompt(key, url, lambda m: root.after(0, lambda: ai_text.insert(tk.END, f"> {m}\n")))
-        root.after(0, lambda: ai_text.insert(tk.END, f"\n【分析結果】\n\n{res}"))
-    
-    threading.Thread(target=worker, daemon=True).start()
+# --- Result Tab ---
+tree = ttk.Treeview(result_tab, columns=("title", "views", "hours", "viral", "published", "url"), show="headings")
+for col, head in zip(tree["columns"], ["標題", "觀看數", "發布小時", "爆發指數", "發布時間", "連結"]):
+    tree.heading(col, text=head)
+tree.column("title", width=350)
+tree.pack(fill="both", expand=True, padx=10, pady=10)
 
-ttk.Button(ai_manual_frame, text="立即分析", command=lambda: start_ai_process(manual_url_var.get().strip())).pack(side="left", padx=5)
+# 右鍵選單
+context_menu = tk.Menu(root, tearoff=0)
+context_menu.add_command(label="開啟影片 (瀏覽器)", command=lambda: webbrowser.open(selected_url))
+context_menu.add_command(label="複製連結", command=lambda: pyperclip.copy(selected_url))
+context_menu.add_separator()
+context_menu.add_command(label="✨ 使用 AI 產生影片 Prompt", command=run_ai_analysis)
 
-ai_text = tk.Text(ai_tab, font=("Microsoft JhengHei", 10), padx=10, pady=10)
-ai_text.pack(fill="both", expand=True, padx=10, pady=5)
-
-ttk.Button(ai_tab, text="複製分析結果", command=lambda: pyperclip.copy(ai_text.get("1.0", tk.END))).pack(pady=5)
-
-# --- 其餘介面 (API 設定與搜尋) 略，請保持您原始碼中的 UI 佈局 ---
-# (此處省略部分重複的 UI 代碼以節省篇幅，但請確保已加入 Button-2/3 綁定)
-
-# --- 搜尋結果右鍵綁定 ---
 def show_context_menu(event):
+    global selected_url
     item_id = tree.identify_row(event.y)
     if item_id:
         tree.selection_set(item_id)
-        context_menu.post(event.x_root, event.y_root)
+        selected_url = tree.item(item_id, "values")[-1]
+        context_menu.tk_popup(event.x_root, event.y_root)
 
-# 在建立 Treeview (tree) 後加入：
-# tree.bind("<Button-2>", show_context_menu) # Mac
-# tree.bind("<Button-3>", show_context_menu) # Windows
-# tree.bind("<Control-Button-1>", show_context_menu) # Mac Ctrl+Click
+tree.bind("<Button-3>", show_context_menu)
 
-# --- [API 變數定義範例] ---
-gemini_key_var = tk.StringVar(value=config.get("gemini_key", ""))
-# ... 保持其他 API 變數定義 ...
+# --- AI Tab ---
+
+# --- AI Tab 介面優化 ---
+url_frame = ttk.Frame(ai_tab)
+url_frame.pack(fill="x", padx=10, pady=5)
+
+ttk.Label(url_frame, text="直接輸入 Shorts 網址:").pack(side="left")
+manual_url_var = tk.StringVar()
+url_entry = ttk.Entry(url_frame, textvariable=manual_url_var, width=50)
+url_entry.pack(side="left", padx=5)
+
+def run_manual_ai():
+    url = manual_url_var.get().strip()
+    if not url:
+        messagebox.showwarning("提示", "請輸入有效的 YouTube URL")
+        return
+    # 呼叫現有的 AI 分析流程，但傳入手動輸入的 URL
+    start_ai_process(url)
+
+ttk.Button(url_frame, text="立即分析", command=run_manual_ai).pack(side="left")
+
+# 原有的文字框
+ai_text = tk.Text(ai_tab, wrap="word", font=("Microsoft JhengHei", 10))
+ai_text.pack(fill="both", expand=True, padx=10, pady=10)
+ttk.Button(ai_tab, text="複製分析結果", command=copy_ai_result).pack(pady=5)
+
+# ========================
+# Run Actions
+# ========================
+def run_search():
+    save_config({
+        "api_key": api_key_var.get().strip(),
+        "gemini_key": gemini_key_var.get().strip(),
+        "keyword": keyword_var.get(),
+        "days": days_var.get(),
+        "min_views": min_views_var.get(),
+        "min_subs": min_subs_var.get(),
+        "max_results": max_results_var.get(),
+        "min_viral_score": min_viral_score_var.get()
+    })
+    tree.delete(*tree.get_children())
+    try:
+        results = fetch_trending_shorts(api_key_var.get(), keyword_var.get(), days_var.get(), min_views_var.get(), 0, max_results_var.get(), min_viral_score_var.get())
+        for r in results:
+            tree.insert("", "end", values=(r["title"], r["views"], r["hours"], r["viral_score"], r["published"], r["url"]))
+        notebook.select(result_tab)
+    except Exception as e:
+        messagebox.showerror("錯誤", str(e))
+
+btn_frame = ttk.Frame(root)
+btn_frame.pack(fill="x", pady=10)
+ttk.Button(btn_frame, text="開始搜尋分析", command=run_search).pack(side="right", padx=10)
 
 root.mainloop()
