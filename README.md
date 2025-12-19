@@ -3,7 +3,7 @@
 
 🔧 **第一步：環境準備 (最重要的步驟)**
 由於本工具不包含龐大的影片處理組件，請您手動完成以下配置：
-1. **下載 FFmpeg：**
+1. **下載 FFmpeg：** refer: https://ffmpeg.org/download.html
   Windows: 請確保資料夾內除了 ShortsAIAnalyzer.exe 之外，還放了一個 ffmpeg.exe 檔案。
   Mac: 請在終端機輸入 brew install ffmpeg 進行安裝。
 2. **API 金鑰：**
