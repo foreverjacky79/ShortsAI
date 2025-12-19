@@ -17,7 +17,7 @@ fi
 # 3. 安裝/更新 必要套件
 echo "📦 正在檢查依賴套件 (google-genai, yt-dlp, pandas...)"
 python3 -m pip install -q --upgrade pip
-python3 -m pip install -q google-genai google-api-python-client yt-dlp pandas pyperclip
+python3 -m pip install -q google-genai google-api-python-client yt-dlp pandas pyperclip requests
 
 # 4. 啟動程式
 echo "🚀 正在開啟程式，請稍候..."
