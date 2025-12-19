@@ -1,4 +1,4 @@
-🎬 YouTube Shorts AI 分析工具：詳細使用手冊 (輕量版)
+🎬 **YouTube Shorts AI 分析工具**
 這是一款幫助您快速掌握 YouTube 趨勢並利用 AI 生成腳本提示詞 (Prompt) 的工具。
 
 🔧 **第一步：環境準備 (最重要的步驟)**
