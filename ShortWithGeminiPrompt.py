@@ -6,12 +6,51 @@ import webbrowser
 import time
 import pandas as pd
 import yt_dlp
-from datetime import datetime, UTC, timedelta
+#from datetime import datetime, UTC, timedelta
+from datetime import datetime, timedelta, timezone
 from googleapiclient.discovery import build
 from google import genai  # 新增：Gemini SDK
 import pyperclip
-
 import sys
+import requests
+import re
+CURRENT_VERSION = "1.0.2"  # 當前版本
+UPDATE_URL = "https://raw.githubusercontent.com/foreverjacky79/ShortsAI/refs/heads/main/README.md"
+CODE_URL = "https://raw.githubusercontent.com/foreverjacky79/ShortsAI/refs/heads/main/ShortWithGeminiPrompt.py"
+
+def parse_duration_to_seconds(duration_str):
+    """ 將 YouTube 的 PT1M5S 格式轉換為總秒數 """
+    hours = re.search(r'(\d+)H', duration_str)
+    minutes = re.search(r'(\d+)M', duration_str)
+    seconds = re.search(r'(\d+)S', duration_str)
+    
+    h = int(hours.group(1)) if hours else 0
+    m = int(minutes.group(1)) if minutes else 0
+    s = int(seconds.group(1)) if seconds else 0
+    
+    return h * 3600 + m * 60 + s
+
+def check_for_updates():
+    try:
+        # 1. 檢查雲端版本號
+        response = requests.get(UPDATE_URL, timeout=5)
+        latest_version = response.text.strip()
+
+        if latest_version > CURRENT_VERSION:
+            answer = messagebox.askyesno("發現更新", f"偵測到新版本 {latest_version}，是否要自動更新？\n(更新後請重啟程式)")
+            if answer:
+                # 2. 下載最新代碼
+                new_code = requests.get(CODE_URL).text
+                
+                # 3. 取得目前執行檔案的路徑並覆蓋
+                current_file_path = os.path.abspath(__file__)
+                with open(current_file_path, "w", encoding="utf-8") as f:
+                    f.write(new_code)
+                
+                messagebox.showinfo("更新成功", "程式已更新完成，請關閉後重新開啟。")
+                root.destroy() # 關閉目前視窗
+    except Exception as e:
+        print(f"檢查更新失敗: {e}")
 
 def get_base_path():
     """ 取得程式執行的真實路徑 """
@@ -21,12 +60,17 @@ def get_base_path():
     # 這是開發環境的 .py 路徑
     return os.path.dirname(os.path.abspath(__file__))
 
+try:
+    from datetime import UTC
+except ImportError:
+    UTC = timezone.utc
+
 # ========================
 # Core Logic: YouTube Fetcher
 # ========================
-def fetch_trending_shorts(api_key, keyword, days, min_views, min_subs, max_results, min_viral_score):
+def fetch_trending_shorts(api_key, keyword, days, min_views, min_subs, max_results, min_viral_score, max_duration):
     youtube = build("youtube", "v3", developerKey=api_key)
-    published_after = (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    published_after = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     search_response = youtube.search().list(
         q=keyword, part="id", type="video", order="viewCount",
@@ -42,28 +86,48 @@ def fetch_trending_shorts(api_key, keyword, days, min_views, min_subs, max_resul
 
     results = []
     for item in video_response["items"]:
-        duration = item["contentDetails"]["duration"]
-        if "M" in duration and not duration.startswith("PT0"): continue
+        # 1. 先抓取內容時長並過濾
+        duration_raw = item["contentDetails"]["duration"]
+        total_seconds = parse_duration_to_seconds(duration_raw)
+        
+        if total_seconds > max_duration: 
+            continue
 
+        # 2. 定義基本變數 (必須在 append 之前定義！)
         stats = item["statistics"]
         snippet = item["snippet"]
         views = int(stats.get("viewCount", 0))
-        if views < min_views: continue
+        
+        # 3. 觀看數過濾
+        if views < min_views: 
+            continue
 
+        # 4. 計算爆發指數與時間
         published = datetime.fromisoformat(snippet["publishedAt"].replace("Z", "+00:00"))
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         hours_passed = max((now - published).total_seconds() / 3600, 1)
         viral_score = views / hours_passed
-        if viral_score < min_viral_score: continue
+        
+        # 5. 爆發指數過濾
+        if viral_score < min_viral_score: 
+            continue
 
+        # 6. 格式化顯示時長
+        m, s = divmod(total_seconds, 60)
+        duration_display = f"{m}:{s:02d}"
+
+        # 7. 最後才加入結果清單 (只需一次 append)
         results.append({
             "title": snippet["title"],
             "views": views,
+            "duration": duration_display,
             "hours": round(hours_passed, 1),
             "viral_score": round(viral_score, 2),
             "published": published.strftime("%Y-%m-%d %H:%M"),
             "url": f"https://www.youtube.com/watch?v={item['id']}"
         })
+
+    # 排序並回傳
     results.sort(key=lambda x: x["viral_score"], reverse=True)
     return results
 
@@ -80,7 +144,7 @@ def ai_generate_prompt(gemini_api_key, video_url, progress_callback):
     try:
         progress_callback("正在下載影片片段...")
         # --- 新增：獲取內置 ffmpeg 的路徑 ---
-        ffmpeg_path = resource_path(".") # 指向臨時資料夾根目錄
+        """ ffmpeg_path = resource_path(".") # 指向臨時資料夾根目錄
         
         ydl_opts = {
             'format': 'best[ext=mp4]/tiny',
@@ -90,7 +154,7 @@ def ai_generate_prompt(gemini_api_key, video_url, progress_callback):
             'ffmpeg_location': ffmpeg_path 
         }        
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([video_url])
+            ydl.download([video_url]) """
 
         ydl_opts = {
             'format': 'best[ext=mp4]/tiny',
@@ -104,7 +168,8 @@ def ai_generate_prompt(gemini_api_key, video_url, progress_callback):
         
         # 獲取可用模型
         models_list = [m.name for m in client.models.list()]
-        priority_models = ["models/gemini-2.0-flash-exp", "models/gemini-1.5-flash", "models/gemini-1.5-pro"]
+        #priority_models = ["models/gemini-2.0-flash-exp", "models/gemini-1.5-flash", "models/gemini-1.5-pro"]
+        priority_models = ["models/gemini-2.0-flash-exp"]
         target_model = next((p for p in priority_models if p in models_list), models_list[0])
 
         progress_callback(f"正在上傳至 Gemini ({target_model})...")
@@ -144,7 +209,8 @@ def default_config():
         "min_views": 100000,
         "min_subs": 0,
         "max_results": 30,
-        "min_viral_score": 3000
+        "min_viral_score": 3000,
+        "max_duration": 20  # 預設排除超過 20 秒的影片
     }
 
 def load_config():
@@ -192,6 +258,7 @@ min_views_var = tk.IntVar(value=cfg["min_views"])
 min_subs_var = tk.IntVar(value=cfg["min_subs"])
 max_results_var = tk.IntVar(value=cfg["max_results"])
 min_viral_score_var = tk.DoubleVar(value=cfg["min_viral_score"])
+max_duration_var = tk.IntVar(value=cfg.get("max_duration", 20))
 
 current_results = []
 selected_url = ""
@@ -268,6 +335,7 @@ def labeled_entry(parent, label, var, row, help_text=None):
 
 labeled_entry(basic_tab, "關鍵字", keyword_var, 0)
 labeled_entry(basic_tab, "搜尋天數", days_var, 1, "例如: 7 = 最近 7 天")
+labeled_entry(basic_tab, "排除長度超過(秒)", max_duration_var, 2, "例如: 20 = 只找 20 秒內的影片")
 
 # --- Adv Tab ---
 labeled_entry(adv_tab, "YouTube API Key", api_key_var, 0, "到 Google Cloud 申請 YouTube Data API v3")
@@ -276,10 +344,16 @@ labeled_entry(adv_tab, "最少觀看數", min_views_var, 2, "低於此數字會�
 labeled_entry(adv_tab, "爆發指數門檻", min_viral_score_var, 3, "觀看數 ÷ 發布後小時（越高代表成長越快）")
 
 # --- Result Tab ---
-tree = ttk.Treeview(result_tab, columns=("title", "views", "hours", "viral", "published", "url"), show="headings")
-for col, head in zip(tree["columns"], ["標題", "觀看數", "發布小時", "爆發指數", "發布時間", "連結"]):
+tree = ttk.Treeview(result_tab, columns=("title", "views", "duration","hours", "viral", "published", "url"), show="headings")
+for col, head in zip(tree["columns"], ["標題", "觀看數", "總時長", "發布小時", "爆發指數", "發布時間"]):
     tree.heading(col, text=head)
-tree.column("title", width=350)
+tree.column("title", width=300)
+tree.column("views", width=100)
+tree.column("duration", width=80, anchor="center")
+tree.column("hours", width=80, anchor="center")
+tree.column("viral", width=100, anchor="center")
+tree.column("published", width=150, anchor="center")
+tree.column("url", width=0, stretch=tk.NO) # 關鍵：設為 0 且不延伸，URL 就會消失
 tree.pack(fill="both", expand=True, padx=10, pady=10)
 
 # 右鍵選單
@@ -337,13 +411,14 @@ def run_search():
         "min_views": min_views_var.get(),
         "min_subs": min_subs_var.get(),
         "max_results": max_results_var.get(),
-        "min_viral_score": min_viral_score_var.get()
+        "min_viral_score": min_viral_score_var.get(),
+        "max_duration": max_duration_var.get()
     })
     tree.delete(*tree.get_children())
     try:
-        results = fetch_trending_shorts(api_key_var.get(), keyword_var.get(), days_var.get(), min_views_var.get(), 0, max_results_var.get(), min_viral_score_var.get())
+        results = fetch_trending_shorts(api_key_var.get(), keyword_var.get(), days_var.get(), min_views_var.get(), 0, max_results_var.get(), min_viral_score_var.get(), max_duration_var.get())
         for r in results:
-            tree.insert("", "end", values=(r["title"], r["views"], r["hours"], r["viral_score"], r["published"], r["url"]))
+            tree.insert("", "end", values=(r["title"], r["views"], r["duration"], r["hours"], r["viral_score"], r["published"], r["url"]))
         notebook.select(result_tab)
     except Exception as e:
         messagebox.showerror("錯誤", str(e))
@@ -352,4 +427,5 @@ btn_frame = ttk.Frame(root)
 btn_frame.pack(fill="x", pady=10)
 ttk.Button(btn_frame, text="開始搜尋分析", command=run_search).pack(side="right", padx=10)
 
+root.after(1000, check_for_updates) # 程式啟動 1 秒後檢查更新
 root.mainloop()
