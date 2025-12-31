@@ -178,7 +178,6 @@ if st.sidebar.button("🗑️ 清除 API Key"):
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.success("✅ 自動儲存，下次自動填入")
 
 st.sidebar.header("🔍 搜尋設定")
 col1, col2 = st.sidebar.columns(2)
