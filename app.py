@@ -1,44 +1,47 @@
 import streamlit as st
 import requests
-import json
-import os
-import webbrowser
-import time
 import pandas as pd
-import yt_dlp
 from datetime import datetime, timedelta, timezone
 from googleapiclient.discovery import build
 import google.generativeai as genai
-import pyperclip
 import re
-import threading
 
-# ===== 核心函數（必須放在最前面）=====
+# 配置
+st.set_page_config(layout="wide", page_icon="🎥", page_title="YouTube Shorts 分析工具")
+
 @st.cache_data(ttl=300)
-def fetch_trending_shorts(api_key, keyword, days, min_views, min_subs, max_results, min_viral_score, max_duration):
-    """YouTube Shorts 趨勢搜尋"""
+def fetch_trending_shorts(api_key, keyword, days, min_views, max_results, min_viral_score, max_duration):
+    """YouTube Shorts 趨勢搜尋（無 yt_dlp）"""
     youtube = build("youtube", "v3", developerKey=api_key)
     published_after = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    # 只搜短影片
     search_response = youtube.search().list(
-        q=keyword, part="id", type="video", order="viewCount",
-        maxResults=max_results, publishedAfter=published_after
+        q=f"{keyword} shorts", 
+        part="id,snippet", 
+        type="video", 
+        order="viewCount", 
+        maxResults=max_results, 
+        videoDuration="short",
+        publishedAfter=published_after
     ).execute()
 
-    video_ids = [item["id"]["videoId"] for item in search_response["items"]]
+    video_ids = [item["id"]["videoId"] for item in search_response["items"] if item["id"]["videoId"]]
     if not video_ids: return []
 
+    # 詳細資料
     video_response = youtube.videos().list(
-        part="snippet,statistics,contentDetails", id=",".join(video_ids)
+        part="snippet,statistics,contentDetails", 
+        id=",".join(video_ids[:50])
     ).execute()
 
     results = []
-    for item in video_response["items"]:
+    for item in video_response.get("items", []):
         duration_raw = item["contentDetails"]["duration"]
         total_seconds = parse_duration_to_seconds(duration_raw)
         if total_seconds > max_duration: continue
 
-        stats = item["statistics"]
+        stats = item.get("statistics", {})
         snippet = item["snippet"]
         views = int(stats.get("viewCount", 0))
         if views < min_views: continue
@@ -51,145 +54,166 @@ def fetch_trending_shorts(api_key, keyword, days, min_views, min_subs, max_resul
         if viral_score < min_viral_score: continue
 
         m, s = divmod(total_seconds, 60)
-        duration_display = f"{m}:{s:02d}"
-
         results.append({
-            "title": snippet["title"],
+            "title": snippet["title"][:80],
             "views": views,
-            "duration": duration_display,
+            "duration": f"{m}:{s:02d}",
             "hours": round(hours_passed, 1),
             "viral_score": round(viral_score, 2),
-            "published": published.strftime("%Y-%m-%d %H:%M"),
-            "url": f"https://www.youtube.com/watch?v={item['id']}"
+            "published": published.strftime("%m-%d %H:%M"),
+            "url": f"https://youtube.com/watch?v={item['id']}"
         })
-
-    results.sort(key=lambda x: x["viral_score"], reverse=True)
-    return results
+    
+    return sorted(results, key=lambda x: x["viral_score"], reverse=True)
 
 def parse_duration_to_seconds(duration_str):
-    hours = re.search(r'(\d+)H', duration_str)
-    minutes = re.search(r'(\d+)M', duration_str)
-    seconds = re.search(r'(\d+)S', duration_str)
-    h = int(hours.group(1)) if hours else 0
-    m = int(minutes.group(1)) if minutes else 0
-    s = int(seconds.group(1)) if seconds else 0
-    return h * 3600 + m * 60 + s
+    h = re.search(r'(\d+)H', duration_str)
+    m = re.search(r'(\d+)M', duration_str)
+    s = re.search(r'(\d+)S', duration_str)
+    return (int(h.group(1)) if h else 0)*3600 + (int(m.group(1)) if m else 0)*60 + (int(s.group(1)) if s else 0)
 
-def ai_generate_prompt(gemini_api_key, video_url, progress_callback=None):
-    """簡化版 AI Prompt 生成（無需下載影片）"""
-    if not gemini_api_key:
-        return "⚠️ 請輸入 Gemini API Key！"
-    
+def ai_generate_prompt(gemini_api_key, video_url):
+    """純文字 AI Prompt 生成"""
     try:
-        if progress_callback: progress_callback("🧠 AI 生成範例 Prompt...")
+        genai.configure(api_key=gemini_api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        prompt = f"""Create detailed English prompt for AI video generation recreating YouTube Shorts: {video_url}
+
+Essential elements:
+• Main character description (appearance, clothing, expression)
+• Specific actions/movements  
+• Environment/setting details
+• Camera movements (zoom, pan, close-up)
+• Lighting and color atmosphere
+• 15-30 second duration suggestion
+
+Single paragraph, optimized for Sora/Runway/RunwayML."""
         
-        # 直接用文字生成 Prompt（部署環境限制影片上傳）
-        client = genai.GenerativeModel('gemini-1.5-flash')
-        client.api_key = gemini_api_key  # 部署環境用此方式
-        
-        prompt = f"""
-        請為 YouTube Shorts "{video_url}" 生成 AI 影片重製的英文 Prompt。
-        包含：角色特徵、動作、環境、鏡頭運動、光影氛圍。
-        格式：單一段落，適合 Sora/Runway 使用。
-        """
-        
-        response = client.generate_content(prompt)
+        response = model.generate_content(prompt)
         return response.text
     except Exception as e:
-        return f"❌ 分析失敗: {str(e)}\n建議：使用本地版本完整功能"
+        return f"❌ Gemini API 需要設定\n錯誤: {str(e)}"
 
-@st.cache_data(ttl=300)
-def get_current_version():
-    try:
-        response = requests.get("https://raw.githubusercontent.com/foreverjacky79/ShortsAI/refs/heads/main/version.txt", timeout=5)
-        return response.text.strip()
-    except:
-        return "1.0.5"
-
-# ===== Streamlit UI（函數定義後）=====
-st.set_page_config(page_title="YouTube Shorts 趨勢分析", page_icon="🎥", layout="wide")
-
-st.title(f"🎥 YouTube Shorts 趨勢分析工具 v{get_current_version()}")
+# ===== UI =====
+st.title("🎥 YouTube Shorts 趨勢分析工具")
 
 # Sidebar
-st.sidebar.header("⚙️ 設定")
-api_key = st.sidebar.text_input("YouTube API Key", type="password")
-gemini_key = st.sidebar.text_input("Gemini API Key", type="password")
+st.sidebar.header("🔑 API 金鑰")
+api_key = st.sidebar.text_input("YouTube API Key", type="password", 
+                               help="console.cloud.google.com → YouTube Data API v3")
+gemini_key = st.sidebar.text_input("Gemini API Key", type="password", 
+                                  help="aistudio.google.com/app/apikey")
 
-st.sidebar.header("🔍 搜尋條件")
+st.sidebar.header("🔍 搜尋設定")
 col1, col2 = st.sidebar.columns(2)
-keyword = col1.text_input("關鍵字", "animal")
-days = col2.number_input("天數", 1, 30, 7)
+keyword = col1.text_input("關鍵字", value="animal")
+days = col2.number_input("最近天數", 1, 14, 7)
 
 col3, col4 = st.sidebar.columns(2)
-min_views = col3.number_input("最低觀看", 10000, 1000000, 100000)
-max_duration = col4.number_input("最長秒數", 10, 60, 20)
+min_views = col3.number_input("最低觀看數", 10000, 1000000, 50000)
+max_duration = col4.number_input("最長秒數", 10, 90, 60)
 
 col5, col6 = st.sidebar.columns(2)
-min_viral = col5.number_input("爆發指數", 1000.0, 10000.0, 3000.0)
-max_results = col6.number_input("最大結果", 10, 100, 30)
+min_viral = col5.number_input("最低爆發指數", 500.0, 10000.0, 2000.0)
+max_results = col6.number_input("最大結果", 20, 100, 50)
 
 # 搜尋按鈕
-if st.sidebar.button("🚀 開始搜尋", type="primary"):
-    if api_key:
-        with st.spinner("搜尋中..."):
-            results = fetch_trending_shorts(api_key, keyword, days, min_views, 0, max_results, min_viral, max_duration)
-            st.session_state.results = results
-            st.success(f"找到 {len(results)} 個熱門 Shorts！")
-    else:
-        st.error("請輸入 YouTube API Key")
+if st.sidebar.button("🚀 開始分析", type="primary", use_container_width=True):
+    if not api_key:
+        st.sidebar.error("❌ 需要 YouTube API Key")
+        st.stop()
+    with st.spinner("🔍 搜尋熱門 Shorts 中..."):
+        results = fetch_trending_shorts(api_key, keyword, days, min_views, max_results, min_viral, max_duration)
+        st.session_state.results = results
+        if results:
+            st.success(f"✅ 找到 {len(results)} 個符合條件的熱門影片！")
+        else:
+            st.warning("⚠️ 未找到符合條件的影片，請調整搜尋條件")
+        st.rerun()
 
-# 主介面
+# 結果展示
 if "results" in st.session_state and st.session_state.results:
     df = pd.DataFrame(st.session_state.results)
-    df = df.sort_values("viral_score", ascending=False)
     
-    st.subheader(f"📊 搜尋結果 ({len(df)} 筆)")
+    st.markdown(f"## 📊 搜尋結果 ({len(df)} 筆)")
     
-    # 選擇影片
-    selected_idx = st.selectbox("選擇影片：", range(len(df)), 
-                               format_func=lambda i: f"{df.iloc[i]['title'][:50]}... ({df.iloc[i]['views']:,}觀看)")
+    # 選擇器
+    selected_idx = st.selectbox(
+        "🎯 選擇影片分析：",
+        range(len(df)),
+        format_func=lambda i: f"🔥 {df.iloc[i]['title'][:60]}... | {df.iloc[i]['views']:,}觀看 | 爆發指數 {df.iloc[i]['viral_score']:.0f}"
+    )
     
     selected = df.iloc[selected_idx]
     
-    # 影片資訊
+    # 資訊卡片
     col1, col2, col3 = st.columns(3)
-    col1.metric("觀看數", f"{selected['views']:,}", f"{selected['viral_score']:.0f}")
-    col2.metric("時長", selected['duration'])
-    col3.metric("發布", f"{selected['hours']}小時前")
+    col1.metric("👀 觀看數", f"{selected['views']:,}", f"{selected['viral_score']:.0f}")
+    col2.metric("⏱️ 時長", selected['duration'])
+    col3.metric("🕐 發布", f"{selected['hours']}小時前")
     
-    st.info(selected['title'])
+    st.markdown(f"**{selected['title']}**")
+    st.markdown(f"[🔗 觀看原影片]({selected['url']})")
     
-    # 動作按鈕
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("🌐 開啟影片"): webbrowser.open(selected['url'])
-    with col2:
-        if st.button("📋 複製連結"): 
-            pyperclip.copy(selected['url'])
-            st.success("已複製！")
-    with col3:
-        if st.button("🤖 AI 分析", disabled=not gemini_key):
-            if gemini_key:
-                with st.spinner("AI 分析中..."):
-                    result = ai_generate_prompt(gemini_key, selected['url'])
-                    st.session_state.ai_result = result
+    # 動作列
+    col1, col2 = st.columns(2)
+    if col1.button("🤖 生成 AI Prompt", type="primary", use_container_width=True, disabled=not gemini_key):
+        if gemini_key:
+            with st.spinner("🎨 AI 生成中..."):
+                result = ai_generate_prompt(gemini_key, selected['url'])
+                st.session_state.ai_result = result
+                st.success("✅ AI Prompt 生成完成！")
     
     # 完整表格
-    st.dataframe(df[['title', 'views', 'duration', 'viral_score', 'published']], 
-                use_container_width=True)
-    
-    # AI 結果
-    if "ai_result" in st.session_state:
-        st.subheader("🎨 AI 生成的 Prompt")
-        st.code(st.session_state.ai_result)
-        st.download_button("下載", st.session_state.ai_result, "prompt.txt")
+    st.markdown("### 📋 完整搜尋結果")
+    st.dataframe(
+        df[['title', 'views', 'viral_score', 'duration', 'published']],
+        use_container_width=True,
+        column_config={
+            "views": st.column_config.NumberColumn("觀看數", format="%,d"),
+            "viral_score": st.column_config.NumberColumn("爆發指數", format="%.1f")
+        },
+        hide_index=True
+    )
 
-# 手動分析
-st.subheader("🔗 手動輸入 URL")
-manual_url = st.text_input("YouTube 連結")
-if st.button("AI 分析", disabled=not gemini_key or not manual_url):
-    if gemini_key:
-        with st.spinner("分析中..."):
-            result = ai_generate_prompt(gemini_key, manual_url)
-            st.session_state.ai_result = result
+# AI Prompt 結果
+if "ai_result" in st.session_state:
+    st.markdown("## 🎨 AI 生成的影片 Prompt")
+    st.code(st.session_state.ai_result, language=None)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button(
+            "💾 下載 Prompt.txt",
+            data=st.session_state.ai_result,
+            file_name="youtube_shorts_ai_prompt.txt",
+            mime="text/plain"
+        )
+    with col2:
+        st.markdown("### 📋 直接複製")
+        st.code(st.session_state.ai_result)
+
+# 使用說明
+with st.expander("📖 使用說明 & API 申請"):
+    st.markdown("""
+    ### 🚀 快速上手
+    1. **側邊欄**填入 **YouTube API Key**
+    2. 調整搜尋條件 → **開始分析**
+    3. 選擇熱門影片 → **生成 AI Prompt**
+    4. 複製 Prompt 到 **Sora/Runway/Kling** 等 AI 工具
+    
+    ### 🔑 API Key 申請
+    **YouTube Data API v3**（免費，每日10,000次）：
+    1. [Google Cloud Console](https://console.cloud.google.com)
+    2. 新建專案 → 啟用 **YouTube Data API v3**
+    3. 憑證 → **API Key** → 複製
+    
+    **Gemini API**（免費，每分鐘15次）：
+    1. [Google AI Studio](https://aistudio.google.com/app/apikey)
+    2. **Get API Key** → 複製
+    
+    ### 💡 搜尋技巧
+    - **關鍵字**：`cat` `dog` `cooking` `dance`
+    - **天數**：1-3天最熱門，7天較全面
+    - **爆發指數**：2000+ = 病毒式傳播
+    """)
