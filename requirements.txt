@@ -1,7 +1,5 @@
 streamlit==1.38.0
 pandas==2.2.2
-yt-dlp==2024.12.31
 google-generativeai==0.8.3
 google-api-python-client==2.20.0
-pyperclip==1.9.0
 requests==2.32.3
