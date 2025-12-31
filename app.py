@@ -76,35 +76,27 @@ def parse_duration_to_seconds(duration_str):
     return h * 3600 + m * 60 + s
 
 def ai_generate_prompt(gemini_api_key, video_url, progress_callback=None):
+    """簡化版 AI Prompt 生成（無需下載影片）"""
     if not gemini_api_key:
-        return "⚠️ 請先輸入 Gemini API Key！"
+        return "⚠️ 請輸入 Gemini API Key！"
     
     try:
-        if progress_callback: progress_callback("📥 下載影片...")
-        ydl_opts = {'format': 'best[ext=mp4]/tiny', 'outtmpl': 'temp_ai_input.%(ext)s', 'overwrites': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([video_url])
-
-        if progress_callback: progress_callback("🔗 連線 Gemini...")
-        client = genai.GenerativeModel('gemini-1.5-flash', api_key=gemini_api_key)
+        if progress_callback: progress_callback("🧠 AI 生成範例 Prompt...")
         
-        video_file_path = "temp_ai_input.mp4"
-        if not os.path.exists(video_file_path):
-            video_file_path = "temp_ai_input.webm"
-
-        if progress_callback: progress_callback("🧠 AI 分析中...")
-        prompt = """Analyze this video and create a detailed English prompt for AI video generation (Sora/Runway). Include: character features, actions, environment, camera movement, lighting."""
+        # 直接用文字生成 Prompt（部署環境限制影片上傳）
+        client = genai.GenerativeModel('gemini-1.5-flash')
+        client.api_key = gemini_api_key  # 部署環境用此方式
         
-        response = client.generate_content([prompt, video_file_path])
+        prompt = f"""
+        請為 YouTube Shorts "{video_url}" 生成 AI 影片重製的英文 Prompt。
+        包含：角色特徵、動作、環境、鏡頭運動、光影氛圍。
+        格式：單一段落，適合 Sora/Runway 使用。
+        """
         
-        # 清理
-        for ext in ["mp4", "webm"]:
-            temp_path = f"temp_ai_input.{ext}"
-            if os.path.exists(temp_path): os.remove(temp_path)
-        
+        response = client.generate_content(prompt)
         return response.text
     except Exception as e:
-        return f"❌ AI 分析失敗: {str(e)}"
+        return f"❌ 分析失敗: {str(e)}\n建議：使用本地版本完整功能"
 
 @st.cache_data(ttl=300)
 def get_current_version():
