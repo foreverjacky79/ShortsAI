@@ -5,11 +5,11 @@ import os
 import webbrowser
 import time
 import pandas as pd
-import yt_dlp
+#import yt_dlp
 #from datetime import datetime, UTC, timedelta
 from datetime import datetime, timedelta, timezone
 from googleapiclient.discovery import build
-from google import genai  # 新增：Gemini SDK
+#from google import genai  # 新增：Gemini SDK
 import pyperclip
 import sys
 import requests
@@ -441,6 +441,7 @@ ttk.Button(btn_frame, text="開始搜尋分析", command=run_search).pack(side="
 
 root.after(1000, check_for_updates) # 程式啟動 1 秒後檢查更新
 root.mainloop()
+
 
 
 
