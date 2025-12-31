@@ -106,7 +106,7 @@ version = get_current_version()
 st.markdown(f"# 🎥 YouTube Shorts 趨勢分析工具 **v{version}**")
 
 # ===== UI =====
-st.title("🎥 YouTube Shorts 趨勢分析工具")
+##st.title("🎥 YouTube Shorts 趨勢分析工具")
 
 # == Sidebar ==
 st.sidebar.header("🔑 API 金鑰")
