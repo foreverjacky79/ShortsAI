@@ -88,10 +88,30 @@ def parse_duration_to_seconds(duration_str):
     return (int(h.group(1)) if h else 0)*3600 + (int(m.group(1)) if m else 0)*60 + (int(s.group(1)) if s else 0)
 
 def ai_generate_prompt(gemini_api_key, video_url):
-    """純文字 AI Prompt 生成"""
+    """支援多模型自動選擇"""
     try:
         genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # ✅ 2025最新可用模型（自動選擇）
+        available_models = [
+            'gemini-2.0-flash-exp',      # 最快
+            'gemini-1.5-pro-latest',     # 最佳品質
+            'gemini-1.5-flash-latest',   # 平衡
+            'gemini-pro'                 # 備用
+        ]
+        
+        model_name = None
+        for model in available_models:
+            try:
+                model_obj = genai.GenerativeModel(model)
+                model_name = model
+                break
+            except:
+                continue
+        
+        if not model_name:
+            return "❌ 無可用 Gemini 模型，請檢查 API Key"
+        
         prompt = f"""Create detailed English prompt for AI video generation recreating YouTube Shorts: {video_url}
 
 Essential elements:
@@ -100,14 +120,16 @@ Essential elements:
 • Environment/setting details
 • Camera movements (zoom, pan, close-up)
 • Lighting and color atmosphere
-• 15-30 second duration suggestion
+• **Exact duration: {duration_text}** (match original video length)
 
 Single paragraph, optimized for Sora/Runway/RunwayML."""
         
-        response = model.generate_content(prompt)
-        return response.text
+        model_obj = genai.GenerativeModel(model_name)
+        response = model_obj.generate_content(prompt)
+        return f"✅ 使用模型：{model_name}\n\n{response.text}"
+        
     except Exception as e:
-        return f"❌ Gemini API 需要設定\n錯誤: {str(e)}"
+        return f"❌ 錯誤：{str(e)}\n\n檢查：\n• API Key 正確？\n• 網路連線？\n• https://aistudio.google.com"
 
 # == current version ==
 @st.cache_data(ttl=3600)
