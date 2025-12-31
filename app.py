@@ -106,11 +106,18 @@ def get_current_version():
 version = get_current_version()
 
 # ===== 美觀 Title + 版本（替換你的 st.markdown）=====
-col1, col2 = st.columns([3, 1])
-with col1:
-    st.title("🎥 YouTube Shorts 趨勢分析工具")
-with col2:
-    st.markdown(f"**v{version}**")
+st.markdown("""
+<style>
+.version-info {
+    position: relative;
+    top: 10px;
+    font-size: 1.1em;
+    color: #666;
+}
+</style>
+""", unsafe_allow_html=True)
+st.title("🎥 YouTube Shorts 趨勢分析工具")
+st.markdown(f'<div class="version-info">**v{version}**</div>', unsafe_allow_html=True)
 
 # == Sidebar ==
 st.sidebar.header("🔑 API 金鑰")
@@ -126,10 +133,10 @@ days = col2.number_input("最近天數", 1, 14, 7)
 
 col3, col4 = st.sidebar.columns(2)
 min_views = col3.number_input("最低觀看數", 10000, 1000000, 50000)
-max_duration = col4.number_input("最長秒數", 10, 90, 60)
+max_duration = col4.number_input("最長秒數", 0, 60, 20)
 
 col5, col6 = st.sidebar.columns(2)
-min_viral = col5.number_input("最低爆發指數", 500.0, 10000.0, 2000.0)
+min_viral = col5.number_input("最低爆發指數", 500.0, 10000.0, 3000.0)
 max_results = col6.number_input("最大結果", 20, 100, 50)
 
 # 搜尋按鈕
