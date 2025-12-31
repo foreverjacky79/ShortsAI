@@ -147,14 +147,14 @@ if "api_key" not in st.session_state: st.session_state.api_key = ""
 if "gemini_key" not in st.session_state: st.session_state.gemini_key = ""
     
 # 3. 輸入框（用 callback 而非 on_change）
-api_key_input = st.sidebar.text_input(
+api_key = st.sidebar.text_input(
     "YouTube API Key", 
     type="password",
     value=st.session_state.api_key,
     key="temp_api_key",  # 臨時 key
     help="console.cloud.google.com → YouTube Data API v3"
 )
-gemini_key_input = st.sidebar.text_input(
+gemini_key = st.sidebar.text_input(
     "Gemini API Key", 
     type="password",
     value=st.session_state.gemini_key,
@@ -163,14 +163,14 @@ gemini_key_input = st.sidebar.text_input(
 )
 
 # 4. 立即同步（最關鍵！）
-st.session_state.api_key = api_key_input
-st.session_state.gemini_key = gemini_key_input
+st.session_state.api_key = api_key
+st.session_state.gemini_key = gemini_key
 
 # 5. 狀態顯示
-if st.session_state.api_key:
-    st.sidebar.success("✅ YouTube API 已儲存")
-if st.session_state.gemini_key:
-    st.sidebar.success("✅ Gemini API 已儲存")
+#if st.session_state.api_key:
+#    st.sidebar.success("✅ YouTube API 已儲存")
+#if st.session_state.gemini_key:
+#    st.sidebar.success("✅ Gemini API 已儲存")
 
 # 6. 清除按鈕
 if st.sidebar.button("🗑️ 清除 API Key", type="secondary"):
