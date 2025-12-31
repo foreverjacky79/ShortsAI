@@ -178,9 +178,10 @@ if api_key:
     st.sidebar.success("✅ YouTube API 已儲存")
 if gemini_key:
     st.sidebar.success("✅ Gemini API 已儲存")
+    
 # ✅ 自動儲存（這行很重要！）
-#st.session_state.api_key = api_key
-#st.session_state.gemini_key = gemini_key
+st.session_state.api_key = api_key
+st.session_state.gemini_key = gemini_key
 
 # 清除按鈕（方便測試）
 if st.sidebar.button("🗑️ 清除 API Key"):
