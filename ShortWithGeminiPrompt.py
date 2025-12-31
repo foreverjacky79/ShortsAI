@@ -43,23 +43,19 @@ def parse_duration_to_seconds(duration_str):
 
 def check_for_updates():
     try:
-        # 1. 檢查雲端版本號
         response = requests.get(UPDATE_URL, timeout=5)
         latest_version = response.text.strip()
 
         if latest_version > CURRENT_VERSION:
-            answer = messagebox.askyesno("發現更新", f"偵測到新版本 {latest_version}，是否要自動更新？\n(更新後請重啟程式)")
+            answer = messagebox.askyesno("發現更新", 
+                f"偵測到新版本 {latest_version}！\n\n"
+                f"請前往 GitHub 下載最新版：\n"
+                f"https://github.com/foreverjacky79/ShortsAI\n\n"
+                f"下載後用新版 .exe 取代目前版本即可。")
+            
             if answer:
-                # 2. 下載最新代碼
-                new_code = requests.get(CODE_URL).text
+                webbrowser.open("https://github.com/foreverjacky79/ShortsAI")
                 
-                # 3. 取得目前執行檔案的路徑並覆蓋
-                current_file_path = os.path.abspath(__file__)
-                with open(current_file_path, "w", encoding="utf-8") as f:
-                    f.write(new_code)
-                
-                messagebox.showinfo("更新成功", "程式已更新完成，請關閉後重新開啟。")
-                root.destroy() # 關閉目前視窗
     except Exception as e:
         print(f"檢查更新失敗: {e}")
 
@@ -445,6 +441,7 @@ ttk.Button(btn_frame, text="開始搜尋分析", command=run_search).pack(side="
 
 root.after(1000, check_for_updates) # 程式啟動 1 秒後檢查更新
 root.mainloop()
+
 
 
 
