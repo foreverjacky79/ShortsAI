@@ -15,7 +15,7 @@ import sys
 import requests
 import re
 
-def get_current_version():
+def get_display_version():
     """從 GitHub 抓取最新版本號"""
     try:
         response = requests.get("https://raw.githubusercontent.com/foreverjacky79/ShortsAI/refs/heads/main/version.txt", timeout=5)
@@ -24,8 +24,8 @@ def get_current_version():
     except Exception:
         return "1.0.3"  # 離線時用預設版本
 
-CURRENT_VERSION = get_current_version()
-
+DISPLAY_VERSION = get_display_version()
+LOCAL_VERSION = "1.0.6"
 UPDATE_URL = "https://raw.githubusercontent.com/foreverjacky79/ShortsAI/refs/heads/main/version.txt"
 CODE_URL = "https://raw.githubusercontent.com/foreverjacky79/ShortsAI/refs/heads/main/ShortWithGeminiPrompt.py"
 
@@ -46,7 +46,7 @@ def check_for_updates():
         response = requests.get(UPDATE_URL, timeout=5)
         latest_version = response.text.strip()
 
-        if latest_version > CURRENT_VERSION:
+        if latest_version > LOCAL_VERSION:
             answer = messagebox.askyesno("發現更新", 
                 f"偵測到新版本 {latest_version}！\n\n"
                 f"請前往 GitHub 下載最新版：\n"
@@ -247,7 +247,7 @@ def resource_path(relative_path):
 ICON_PATH = resource_path("icon.ico")
 
 root = tk.Tk()
-root.title(f"YouTube Shorts 趨勢與 AI 影片分析工具 v{CURRENT_VERSION}")
+root.title(f"YouTube Shorts 趨勢與 AI 影片分析工具 v{DISPLAY_VERSION}")
 # 設定視窗圖示（若檔案存在則載入）
 if os.path.exists(ICON_PATH):
     try:
@@ -441,6 +441,7 @@ ttk.Button(btn_frame, text="開始搜尋分析", command=run_search).pack(side="
 
 root.after(1000, check_for_updates) # 程式啟動 1 秒後檢查更新
 root.mainloop()
+
 
 
 
