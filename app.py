@@ -10,6 +10,7 @@ import re
 st.set_page_config(layout="wide", page_icon="🎥", page_title="YouTube Shorts 分析工具")
 
 @st.cache_data(ttl=300)
+# == search YT and create prompt ==
 def fetch_trending_shorts(api_key, keyword, days, min_views, max_results, min_viral_score, max_duration):
     """YouTube Shorts 趨勢搜尋（無 yt_dlp）"""
     youtube = build("youtube", "v3", developerKey=api_key)
@@ -94,10 +95,20 @@ Single paragraph, optimized for Sora/Runway/RunwayML."""
     except Exception as e:
         return f"❌ Gemini API 需要設定\n錯誤: {str(e)}"
 
+# == current version ==
+def get_current_version():
+    try:
+        return requests.get("https://raw.githubusercontent.com/foreverjacky79/ShortsAI/refs/heads/main/version.txt", timeout=5).text.strip()
+    except:
+        return "1.0.5"
+
+version = get_current_version()
+st.markdown(f"# 🎥 YouTube Shorts 趨勢分析工具 **v{version}**")
+
 # ===== UI =====
 st.title("🎥 YouTube Shorts 趨勢分析工具")
 
-# Sidebar
+# == Sidebar ==
 st.sidebar.header("🔑 API 金鑰")
 api_key = st.sidebar.text_input("YouTube API Key", type="password", 
                                help="console.cloud.google.com → YouTube Data API v3")
