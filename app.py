@@ -11,18 +11,6 @@ import os
 # 配置
 st.set_page_config(layout="wide", page_icon="🎥", page_title="YouTube Shorts 分析工具")
 
-# == save API ==
-def save_api_keys():
-    config = {"api_key": api_key, "gemini_key": gemini_key}
-    with open(".api_config.json", "w") as f:
-        json.dump(config, f)
-
-def load_api_keys():
-    if os.path.exists(".api_config.json"):
-        with open(".api_config.json", "r") as f:
-            return json.load(f)
-    return {"api_key": "", "gemini_key": ""}
-
 @st.cache_data(ttl=300)
 # == search YT and create prompt ==
 def fetch_trending_shorts(api_key, keyword, days, min_views, max_results, min_viral_score, max_duration):
@@ -149,46 +137,47 @@ st.caption(f"**v{version}**")
 
 # == Sidebar ==
 st.sidebar.header("🔑 API 金鑰（自動儲存）")
-# 初始化 session_state
+# 1. 先定義儲存函數
+def save_api_keys():
+    st.session_state.api_key = st.session_state.temp_api_key
+def save_gemini_key():
+    st.session_state.gemini_key = st.session_state.temp_gemini_key
+# 2. 初始化 session_state
 if "api_key" not in st.session_state: st.session_state.api_key = ""
 if "gemini_key" not in st.session_state: st.session_state.gemini_key = ""
-def update_api_key():
-    st.session_state.api_key = st.session_state.api_key_input
-def update_gemini_key():
-    st.session_state.gemini_key = st.session_state.gemini_key_input
     
-# 輸入框（關鍵：用 key 參數 + 自動寫回）
-api_key = st.sidebar.text_input(
+# 3. 輸入框（用 callback 而非 on_change）
+api_key_input = st.sidebar.text_input(
     "YouTube API Key", 
     type="password",
-    value=st.session_state.api_key,  # 讀取上次
-    key="api_key_input",             # ✅ 關鍵：唯一 key
-    on_change=update_api_key,
+    value=st.session_state.api_key,
+    key="temp_api_key",  # 臨時 key
     help="console.cloud.google.com → YouTube Data API v3"
 )
-gemini_key = st.sidebar.text_input(
+gemini_key_input = st.sidebar.text_input(
     "Gemini API Key", 
     type="password",
-    value=st.session_state.gemini_key, # 讀取上次
-    key="gemini_key_input",            # ✅ 關鍵：唯一 key
-    on_change=update_gemini_key,
+    value=st.session_state.gemini_key,
+    key="temp_gemini_key",  # 臨時 key
     help="aistudio.google.com/app/apikey"
 )
-if api_key:
-    st.sidebar.success("✅ YouTube API 已儲存")
-if gemini_key:
-    st.sidebar.success("✅ Gemini API 已儲存")
-    
-# ✅ 自動儲存（這行很重要！）
-st.session_state.api_key = api_key
-st.session_state.gemini_key = gemini_key
 
-# 清除按鈕（方便測試）
-if st.sidebar.button("🗑️ 清除 API Key"):
+# 4. 立即同步（最關鍵！）
+st.session_state.api_key = api_key_input
+st.session_state.gemini_key = gemini_key_input
+
+# 5. 狀態顯示
+if st.session_state.api_key:
+    st.sidebar.success("✅ YouTube API 已儲存")
+if st.session_state.gemini_key:
+    st.sidebar.success("✅ Gemini API 已儲存")
+
+# 6. 清除按鈕
+if st.sidebar.button("🗑️ 清除 API Key", type="secondary"):
     st.session_state.api_key = ""
     st.session_state.gemini_key = ""
     st.rerun()
-
+    
 st.sidebar.markdown("---")
 
 st.sidebar.header("🔍 搜尋設定")
