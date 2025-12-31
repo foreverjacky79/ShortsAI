@@ -120,7 +120,7 @@ Essential elements:
 • Environment/setting details
 • Camera movements (zoom, pan, close-up)
 • Lighting and color atmosphere
-• **Exact duration: {duration_text}** (match original video length)
+• Video exact duration: match original video length
 
 Single paragraph, optimized for Sora/Runway/RunwayML."""
         
