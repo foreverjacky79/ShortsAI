@@ -5,9 +5,23 @@ from datetime import datetime, timedelta, timezone
 from googleapiclient.discovery import build
 import google.generativeai as genai
 import re
+import json
+import os
 
 # 配置
 st.set_page_config(layout="wide", page_icon="🎥", page_title="YouTube Shorts 分析工具")
+
+# == save API ==
+def save_api_keys():
+    config = {"api_key": api_key, "gemini_key": gemini_key}
+    with open(".api_config.json", "w") as f:
+        json.dump(config, f)
+
+def load_api_keys():
+    if os.path.exists(".api_config.json"):
+        with open(".api_config.json", "r") as f:
+            return json.load(f)
+    return {"api_key": "", "gemini_key": ""}
 
 @st.cache_data(ttl=300)
 # == search YT and create prompt ==
@@ -113,9 +127,11 @@ st.caption(f"**v{version}**")
 
 # == Sidebar ==
 st.sidebar.header("🔑 API 金鑰")
-api_key = st.sidebar.text_input("YouTube API Key", type="password", 
+if "api_key" not in st.session_state: st.session_state.api_key = ""
+if "gemini_key" not in st.session_state: st.session_state.gemini_key = ""
+api_key = st.sidebar.text_input("YouTube API Key", type="password", value=st.session_state.api_key, 
                                help="console.cloud.google.com → YouTube Data API v3")
-gemini_key = st.sidebar.text_input("Gemini API Key", type="password", 
+gemini_key = st.sidebar.text_input("Gemini API Key", type="password", value=st.session_state.gemini_key, 
                                   help="aistudio.google.com/app/apikey")
 
 st.sidebar.header("🔍 搜尋設定")
