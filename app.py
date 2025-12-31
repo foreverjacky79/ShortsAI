@@ -227,7 +227,25 @@ if "results" in st.session_state and st.session_state.results:
         },
         hide_index=True
     )
+# ===== 手動輸入 YT URL =====
+st.markdown("---")
+st.markdown("### 🔗 **手動輸入 YouTube URL 分析**")
+col_url1, col_url2 = st.columns([3, 1])
 
+manual_url = col_url1.text_input(
+    "貼上任意 YouTube 連結", 
+    placeholder="https://youtube.com/watch?v=xxx 或 shorts/xxx",
+    help="支援所有 YouTube 影片，不限 Shorts！"
+)
+
+if col_url2.button("🤖 直接生成 Prompt", type="primary", disabled=not gemini_key or not manual_url):
+    if gemini_key and manual_url:
+        with st.spinner("🎨 AI 分析中..."):
+            result = ai_generate_prompt(gemini_key, manual_url)
+            st.session_state.ai_result = result
+            st.session_state.manual_mode = True  # 標記手動模式
+            st.success("✅ 手動 URL Prompt 生成完成！")
+            
 # AI Prompt 結果
 if "ai_result" in st.session_state:
     st.markdown("## 🎨 AI 生成的影片 Prompt")
