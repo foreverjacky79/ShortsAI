@@ -371,7 +371,12 @@ def show_context_menu(event):
         selected_url = tree.item(item_id, "values")[-1]
         context_menu.tk_popup(event.x_root, event.y_root)
 
-tree.bind("<Button-3>", show_context_menu)
+if sys.platform == "darwin":  # macOS
+    # mac 上多數右鍵會是 Button-2，另外支援 Ctrl+左鍵 當右鍵
+    tree.bind("<Button-2>", show_context_menu)
+    tree.bind("<Control-Button-1>", show_context_menu)
+else:  # Windows / Linux
+    tree.bind("<Button-3>", show_context_menu)
 
 # --- AI Tab ---
 
@@ -429,5 +434,6 @@ ttk.Button(btn_frame, text="開始搜尋分析", command=run_search).pack(side="
 
 root.after(1000, check_for_updates) # 程式啟動 1 秒後檢查更新
 root.mainloop()
+
 
 
