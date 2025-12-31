@@ -96,6 +96,7 @@ Single paragraph, optimized for Sora/Runway/RunwayML."""
         return f"❌ Gemini API 需要設定\n錯誤: {str(e)}"
 
 # == current version ==
+@st.cache_data(ttl=3600)
 def get_current_version():
     try:
         return requests.get("https://raw.githubusercontent.com/foreverjacky79/ShortsAI/refs/heads/main/version.txt", timeout=5).text.strip()
@@ -103,10 +104,10 @@ def get_current_version():
         return "1.0.5"
 
 version = get_current_version()
-st.markdown(f"# 🎥 YouTube Shorts 趨勢分析工具 **v{version}**")
+
 
 # ===== UI =====
-##st.title("🎥 YouTube Shorts 趨勢分析工具")
+st.markdown(f"# 🎥 YouTube Shorts 趨勢分析工具 **v{version}**")
 
 # == Sidebar ==
 st.sidebar.header("🔑 API 金鑰")
