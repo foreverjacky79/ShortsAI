@@ -148,13 +148,37 @@ st.markdown(" ")
 st.caption(f"**v{version}**")
 
 # == Sidebar ==
-st.sidebar.header("🔑 API 金鑰")
+st.sidebar.header("🔑 API 金鑰（自動儲存）")
+# 初始化 session_state
 if "api_key" not in st.session_state: st.session_state.api_key = ""
 if "gemini_key" not in st.session_state: st.session_state.gemini_key = ""
-api_key = st.sidebar.text_input("YouTube API Key", type="password", value=st.session_state.api_key, 
-                               help="console.cloud.google.com → YouTube Data API v3")
-gemini_key = st.sidebar.text_input("Gemini API Key", type="password", value=st.session_state.gemini_key, 
-                                  help="aistudio.google.com/app/apikey")
+# 輸入框（關鍵：用 key 參數 + 自動寫回）
+api_key = st.sidebar.text_input(
+    "YouTube API Key", 
+    type="password",
+    value=st.session_state.api_key,  # 讀取上次
+    key="api_key_input",             # ✅ 關鍵：唯一 key
+    help="console.cloud.google.com → YouTube Data API v3"
+)
+gemini_key = st.sidebar.text_input(
+    "Gemini API Key", 
+    type="password",
+    value=st.session_state.gemini_key, # 讀取上次
+    key="gemini_key_input",            # ✅ 關鍵：唯一 key
+    help="aistudio.google.com/app/apikey"
+)
+# ✅ 自動儲存（這行很重要！）
+st.session_state.api_key = api_key
+st.session_state.gemini_key = gemini_key
+
+# 清除按鈕（方便測試）
+if st.sidebar.button("🗑️ 清除 API Key"):
+    st.session_state.api_key = ""
+    st.session_state.gemini_key = ""
+    st.rerun()
+
+st.sidebar.markdown("---")
+st.sidebar.success("✅ 自動儲存，下次自動填入")
 
 st.sidebar.header("🔍 搜尋設定")
 col1, col2 = st.sidebar.columns(2)
