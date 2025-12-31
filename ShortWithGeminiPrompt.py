@@ -14,7 +14,18 @@ import pyperclip
 import sys
 import requests
 import re
-CURRENT_VERSION = "1.0.4"  # right click in mac
+
+def get_current_version():
+    """從 GitHub 抓取最新版本號"""
+    try:
+        response = requests.get("https://raw.githubusercontent.com/foreverjacky79/ShortsAI/refs/heads/main/version.txt", timeout=5)
+        response.raise_for_status()  # 檢查 HTTP 錯誤
+        return response.text.strip()
+    except Exception:
+        return "1.0.3"  # 離線時用預設版本
+
+CURRENT_VERSION = get_current_version()
+
 UPDATE_URL = "https://raw.githubusercontent.com/foreverjacky79/ShortsAI/refs/heads/main/version.txt"
 CODE_URL = "https://raw.githubusercontent.com/foreverjacky79/ShortsAI/refs/heads/main/ShortWithGeminiPrompt.py"
 
@@ -240,7 +251,7 @@ def resource_path(relative_path):
 ICON_PATH = resource_path("icon.ico")
 
 root = tk.Tk()
-root.title("YouTube Shorts 趨勢與 AI 影片分析工具")
+root.title(f"YouTube Shorts 趨勢與 AI 影片分析工具 v{CURRENT_VERSION}")
 # 設定視窗圖示（若檔案存在則載入）
 if os.path.exists(ICON_PATH):
     try:
@@ -434,6 +445,7 @@ ttk.Button(btn_frame, text="開始搜尋分析", command=run_search).pack(side="
 
 root.after(1000, check_for_updates) # 程式啟動 1 秒後檢查更新
 root.mainloop()
+
 
 
 
