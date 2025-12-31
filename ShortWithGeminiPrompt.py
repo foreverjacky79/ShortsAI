@@ -14,7 +14,7 @@ import pyperclip
 import sys
 import requests
 import re
-CURRENT_VERSION = "1.0.3"  # 當前版本
+CURRENT_VERSION = "1.0.4"  # right click in mac
 UPDATE_URL = "https://raw.githubusercontent.com/foreverjacky79/ShortsAI/refs/heads/main/version.txt"
 CODE_URL = "https://raw.githubusercontent.com/foreverjacky79/ShortsAI/refs/heads/main/ShortWithGeminiPrompt.py"
 
@@ -434,6 +434,7 @@ ttk.Button(btn_frame, text="開始搜尋分析", command=run_search).pack(side="
 
 root.after(1000, check_for_updates) # 程式啟動 1 秒後檢查更新
 root.mainloop()
+
 
 
 
