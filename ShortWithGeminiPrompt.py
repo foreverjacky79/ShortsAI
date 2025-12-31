@@ -25,7 +25,7 @@ def get_display_version():
         return "1.0.3"  # 離線時用預設版本
 
 DISPLAY_VERSION = get_display_version()
-LOCAL_VERSION = "1.0.6"
+LOCAL_VERSION = "1.0.7"
 UPDATE_URL = "https://raw.githubusercontent.com/foreverjacky79/ShortsAI/refs/heads/main/version.txt"
 CODE_URL = "https://raw.githubusercontent.com/foreverjacky79/ShortsAI/refs/heads/main/ShortWithGeminiPrompt.py"
 
@@ -441,6 +441,7 @@ ttk.Button(btn_frame, text="開始搜尋分析", command=run_search).pack(side="
 
 root.after(1000, check_for_updates) # 程式啟動 1 秒後檢查更新
 root.mainloop()
+
 
 
 
