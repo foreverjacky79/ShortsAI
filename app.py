@@ -105,9 +105,13 @@ def get_current_version():
 
 version = get_current_version()
 
-
-# ===== UI =====
-st.markdown(f"# 🎥 YouTube Shorts 趨勢分析工具 **v{version}**")
+# ===== 美觀 Title + 版本（替換你的 st.markdown）=====
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.title("🎥 YouTube Shorts 趨勢分析工具")
+with col2:
+    st.markdown(f"**v{version}**")
+    st.caption("最新版 ✓")
 
 # == Sidebar ==
 st.sidebar.header("🔑 API 金鑰")
